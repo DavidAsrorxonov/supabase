@@ -61,9 +61,22 @@ Sentry.init({
   // Enable performance monitoring - Next.js routes and API calls are automatically instrumented
   tracesSampleRate: 0.1, // Capture 10% of transactions for performance monitoring
 
-  // [Ali] Filter out browser extensions and user scripts (FE-2094)
-  // Using denyUrls to block known third-party script patterns
-  denyUrls: [/userscript/i],
+  // Only capture errors originating from our own code.
+  // This is a whitelist on the source URL in stack frames — it drops errors from
+  // browser extensions, injected scripts, third-party widgets, etc. (FE-2094)
+  allowUrls: [
+    /https?:\/\/(.*\.)?supabase\.(com|co|green|io)/,
+    /app:\/\//, // Next.js rewrites source URLs to app:// with source maps
+  ],
+  denyUrls: [
+    /extensions\//i,
+    /^chrome:\/\//i,
+    /^chrome-extension:\/\//i,
+    /^moz-extension:\/\//i,
+    /^safari-extension:\/\//i,
+    /^safari-web-extension:\/\//i,
+    /userscript/i,
+  ],
   beforeBreadcrumb(breadcrumb, _hint) {
     const cleanedBreadcrumb = { ...breadcrumb }
 

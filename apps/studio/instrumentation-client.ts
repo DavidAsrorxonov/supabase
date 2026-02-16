@@ -126,37 +126,75 @@ Sentry.init({
     return event
   },
   ignoreErrors: [
-    // Used exclusively in Monaco Editor.
+    // === Monaco Editor ===
     'ResizeObserver',
     's.getModifierState is not a function',
     /^Uncaught NetworkError: Failed to execute 'importScripts' on 'WorkerGlobalScope'/,
-    // [Joshen] We currently use stripe-js for customers to save their credit card data
-    // I'm unable to reproduce this error on local, staging nor prod across chrome, safari or firefox
-    // Based on https://github.com/stripe/stripe-js/issues/26, it seems like this error is safe to ignore,
+
+    // === Third-party SDK errors ===
+    // stripe-js: https://github.com/stripe/stripe-js/issues/26
     'Failed to load Stripe.js',
-    // [Joshen] This event started occurring after our fix in the org dropdown by reading the slug from
-    // the URL params instead of the store, but we cannot repro locally, staging nor on prod
-    // Safe to ignore since it's not a user-facing issue + we've not received any user feedback/report about it
-    // Ref: https://github.com/supabase/supabase/pull/9729
-    'The provided `href` (/org/[slug]/general) value is missing query values (slug)',
-    'The provided `href` (/org/[slug]/team) value is missing query values (slug)',
-    'The provided `href` (/org/[slug]/billing) value is missing query values (slug)',
-    'The provided `href` (/org/[slug]/invoices) value is missing query values (slug)',
-    // [Joshen] Seems to be from hcaptcha
+    // hCaptcha
     "undefined is not an object (evaluating 'n.chat.setReady')",
     "undefined is not an object (evaluating 'i.chat.setReady')",
-    // [Terry] When users paste in an embedded GitHub Gist
-    // Error thrown by `sql-formatter` lexer when given invalid input
-    // Original format: new Error(`Parse error: Unexpected "${text}" at line ${line} column ${col}`)
+
+    // === Next.js internals ===
+    // Ref: https://github.com/supabase/supabase/pull/9729
+    /The provided `href` \(\/org\/\[slug\]\/.*\) value is missing query values/,
+    // Next.js throws these during navigation, not actual errors
+    'NEXT_NOT_FOUND',
+    'NEXT_REDIRECT',
+
+    // === User input errors (not bugs) ===
+    // sql-formatter lexer on invalid SQL input
     /^Parse error: Unexpected ".+" at line \d+ column \d+$/,
-    // [Joshen] IMO, should be caught on API if there's anything to handle - FE shouldn't dupe this alert
+
+    // === Network / infrastructure (not actionable on FE) ===
     /504 Gateway Time-out/,
-    // [Joshen] This is the one caused by Google translate in the browser + 3rd party extensions
+    'Network request failed',
+    'Failed to fetch',
+    'Load failed',
+    'AbortError',
+    'TypeError: cancelled',
+    'TypeError: Cancelled',
+
+    // === Code-split / chunk loading (transient network issues) ===
+    'ChunkLoadError',
+    /Loading chunk [\d]+ failed/,
+    /Loading CSS chunk [\d]+ failed/,
+
+    // === Browser extensions & Google Translate DOM manipulation ===
     'Node.insertBefore: Child to insert before is not a child of this node',
-    // [Joshen] This one sprung up recently and I've no idea where this is coming from
+    "NotFoundError: Failed to execute 'removeChild' on 'Node'",
+    "NotFoundError: Failed to execute 'insertBefore' on 'Node'",
+    "Cannot read properties of null (reading 'parentNode')",
+    "Cannot read properties of null (reading 'removeChild')",
+    "TypeError: can't access dead object",
+    /^NS_ERROR_/,
+
+    // === Non-Error throws (extensions, third-party libs throwing strings/objects) ===
+    'Non-Error exception captured',
+    'Non-Error promise rejection captured',
+
+    // === Cross-origin script errors (no useful info) ===
+    'Script error.',
+    'Script error',
+
+    // === React hydration mismatches (usually caused by extensions modifying DOM) ===
+    /text content does not match/i,
+    /hydration/i,
+    /Hydration failed because/i,
+    /There was an error while hydrating/i,
+
+    // === Web crawler / bot errors ===
+    'instantSearchSDKJSBridgeClearHighlight',
+
+    // === Misc known noise ===
     'r.default.setDefaultLevel is not a function',
-    // [Joshen] Safe to ignore, it an error from the copyToClipboard
+    // Clipboard permission denied
     'The request is not allowed by the user agent or the platform in the current context, possibly because the user denied permission.',
+    // Facebook pixel
+    'fb_xd_fragment',
   ],
 })
 

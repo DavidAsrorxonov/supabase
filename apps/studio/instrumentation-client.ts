@@ -24,32 +24,6 @@ function isHCaptchaRelatedError(event: Sentry.Event): boolean {
   return false
 }
 
-// We want to ignore errors not originating from docs app static files
-// (such as errors from browser extensions). Those errors come from files
-// not starting with 'app:///_next'.
-//
-// However, there is a complication because the Sentry code that sends
-// the error shows up in the stack trace, and that _does_ start with
-// 'app:///_next'. It is always the first frame in the stack trace,
-// and has a specific pre_context comment that we can use for filtering.
-// Copied from docs app instrumentation-client.ts
-function isThirdPartyError(frames: Sentry.StackFrame[] | undefined) {
-  if (!frames || frames.length === 0) return false
-
-  function isSentryFrame(frame: Sentry.StackFrame, index: number) {
-    return index === 0 && frame.pre_context?.some((line) => line.includes('sentry.javascript'))
-  }
-
-  // Check if any frame is from our app (excluding Sentry's own frame)
-  const hasAppFrame = frames.some((frame, index) => {
-    const path = frame.abs_path || frame.filename
-    return path?.startsWith('app:///_next') && !isSentryFrame(frame, index)
-  })
-
-  // If no app frames found, it's a third-party error
-  return !hasAppFrame
-}
-
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
   ...(process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT && {
@@ -57,6 +31,16 @@ Sentry.init({
   }),
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
   debug: false,
+
+  integrations: [
+    // Drop errors whose stack trace only contains third-party frames (browser extensions,
+    // injected scripts, etc.). This uses build-time code annotation via the applicationKey
+    // in next.config.js to reliably distinguish our code from third-party code.
+    Sentry.thirdPartyErrorFilterIntegration({
+      filterKeys: ['supabase-studio'],
+      behaviour: 'drop-error-if-exclusively-contains-third-party-frames',
+    }),
+  ],
 
   // Enable performance monitoring - Next.js routes and API calls are automatically instrumented
   tracesSampleRate: 0.1, // Capture 10% of transactions for performance monitoring
@@ -117,11 +101,6 @@ Sentry.init({
     }
 
     if (isHCaptchaRelatedError(event)) {
-      return null
-    }
-
-    const frames = event.exception?.values?.[0].stacktrace?.frames || []
-    if (isThirdPartyError(frames)) {
       return null
     }
 

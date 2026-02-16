@@ -104,6 +104,15 @@ Sentry.init({
       return null
     }
 
+    // Drop events where every exception has no stack trace — these are not debuggable
+    const exceptions = event.exception?.values ?? []
+    if (
+      exceptions.length > 0 &&
+      exceptions.every((ex) => !ex.stacktrace?.frames?.length)
+    ) {
+      return null
+    }
+
     // Filter out errors like 'e._5BLbSXV[t] is not a function' or anything matching '[t] is not a function'
     if (
       hint.originalException instanceof Error &&

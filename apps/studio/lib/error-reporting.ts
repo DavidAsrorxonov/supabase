@@ -113,5 +113,13 @@ function captureMessage({ message, context }: CaptureMessageOptions) {
   if (WHITELIST_ERRORS.some((whitelisted) => message.includes(whitelisted))) {
     return
   }
-  Sentry.captureMessage(`[CRITICAL][${context}] Failed: ${message}`)
+  // Use captureException with a real Error so Sentry groups by stack trace
+  // instead of creating a new issue per unique message string.
+  Sentry.withScope((scope) => {
+    scope.setTag('critical', 'true')
+    scope.setTag('context', context)
+    const error = new Error(message)
+    error.name = `CriticalError`
+    Sentry.captureException(error)
+  })
 }

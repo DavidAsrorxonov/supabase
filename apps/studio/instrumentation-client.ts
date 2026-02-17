@@ -26,6 +26,7 @@ function isHCaptchaRelatedError(event: Sentry.Event): boolean {
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  release: process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || process.env.VERCEL_GIT_COMMIT_SHA,
   ...(process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT && {
     environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT,
   }),
@@ -42,8 +43,33 @@ Sentry.init({
     }),
   ],
 
-  // Enable performance monitoring - Next.js routes and API calls are automatically instrumented
-  tracesSampleRate: 0.1, // Capture 10% of transactions for performance monitoring
+  // Route-aware performance sampling instead of a flat 10% rate.
+  // High-value flows get full coverage, noise gets dropped entirely.
+  tracesSampler: ({ name, inheritOrSampleWith }) => {
+    // Drop static assets, health checks, and internal routes entirely
+    if (
+      name?.startsWith('/_next/') ||
+      name === '/api/health' ||
+      name === '/api/ping' ||
+      name === '/monitoring' ||
+      name === '/favicon.ico'
+    ) {
+      return 0
+    }
+
+    // Critical flows: auth, billing, project creation — 100% sampling
+    if (
+      name?.includes('/sign-in') ||
+      name?.includes('/sign-up') ||
+      name?.includes('/billing') ||
+      name?.includes('/new/')
+    ) {
+      return 1.0
+    }
+
+    // Default: inherit parent trace decision or fall back to 10%
+    return inheritOrSampleWith(0.1)
+  },
 
   // Only capture errors originating from our own code.
   // This is a whitelist on the source URL in stack frames — it drops errors from

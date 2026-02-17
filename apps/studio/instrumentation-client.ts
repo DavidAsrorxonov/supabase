@@ -3,8 +3,6 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from '@sentry/nextjs'
-import { match } from 'path-to-regexp'
-
 import { hasConsented } from 'common'
 import { IS_PLATFORM } from 'common/constants/environment'
 import { MIRRORED_BREADCRUMBS } from 'lib/breadcrumbs'
@@ -22,6 +20,52 @@ function isHCaptchaRelatedError(event: Sentry.Event): boolean {
     }
   }
   return false
+}
+
+// Filter browser wallet extension errors (e.g., Gate.io wallet)
+// These errors come from injected wallet scripts and are not actionable
+// Examples: SUPABASE-APP-AFC, SUPABASE-APP-92A
+export function isBrowserWalletExtensionError(event: Sentry.Event): boolean {
+  const frames = event.exception?.values?.flatMap((e) => e.stacktrace?.frames || []) || []
+  return frames.some((frame) => {
+    const filename = frame.filename || frame.abs_path || ''
+    return filename.includes('gt-window-provider') || filename.includes('wallet-provider')
+  })
+}
+
+// Filter user-aborted operations (intentional cancellations)
+// These are expected when users cancel requests or navigate away
+// Examples: SUPABASE-APP-BG6, SUPABASE-APP-BG7
+export function isUserAbortedOperation(error: unknown, event: Sentry.Event): boolean {
+  const errorMessage = error instanceof Error ? error.message : ''
+  const eventMessage = event.message || ''
+  const message = errorMessage || eventMessage
+
+  return (
+    message.includes('operation was aborted') ||
+    message.includes('signal is aborted') ||
+    message.includes('manually canceled') ||
+    message.includes('AbortError')
+  )
+}
+
+// Filter cancellation promise rejections (e.g., from query cancellation)
+// These occur when operations are intentionally cancelled by the user
+// Example: SUPABASE-APP-353 (~466k events)
+export function isCancellationRejection(event: Sentry.Event): boolean {
+  const serialized = event.extra?.__serialized__ as Record<string, unknown> | undefined
+  return serialized?.type === 'cancelation'
+}
+
+// Filter challenge/captcha expired errors (user timeout)
+// These happen when users don't complete captcha in time - expected behavior
+// Example: SUPABASE-APP-ACC
+export function isChallengeExpiredError(error: unknown, event: Sentry.Event): boolean {
+  const errorMessage = error instanceof Error ? error.message : ''
+  const eventMessage = event.message || ''
+  const message = errorMessage || eventMessage
+
+  return message.includes('challenge-expired')
 }
 
 Sentry.init({
@@ -147,6 +191,19 @@ Sentry.init({
       return null
     }
 
+    if (isBrowserWalletExtensionError(event)) {
+      return null
+    }
+    if (isUserAbortedOperation(hint.originalException, event)) {
+      return null
+    }
+    if (isCancellationRejection(event)) {
+      return null
+    }
+    if (isChallengeExpiredError(hint.originalException, event)) {
+      return null
+    }
+
     if (event.breadcrumbs) {
       event.breadcrumbs = sanitizeArrayOfObjects(event.breadcrumbs) as Sentry.Breadcrumb[]
     }
@@ -157,6 +214,9 @@ Sentry.init({
     'ResizeObserver',
     's.getModifierState is not a function',
     /^Uncaught NetworkError: Failed to execute 'importScripts' on 'WorkerGlobalScope'/,
+
+    // === Browser wallet extension errors (e.g., Gate.io wallet) ===
+    'shouldSetTallyForCurrentProvider is not a function',
 
     // === Third-party SDK errors ===
     // stripe-js: https://github.com/stripe/stripe-js/issues/26
@@ -194,6 +254,7 @@ Sentry.init({
     'Node.insertBefore: Child to insert before is not a child of this node',
     "NotFoundError: Failed to execute 'removeChild' on 'Node'",
     "NotFoundError: Failed to execute 'insertBefore' on 'Node'",
+    'NotFoundError: The object can not be found here.',
     "Cannot read properties of null (reading 'parentNode')",
     "Cannot read properties of null (reading 'removeChild')",
     "TypeError: can't access dead object",
@@ -224,32 +285,6 @@ Sentry.init({
     'fb_xd_fragment',
   ],
 })
-
-// Replace dynamic query param with a template text
-// Support grouping sentry transaction
-function standardiseRouterUrl(url: string) {
-  let finalUrl = url
-
-  const orgMatch = match('/org/:slug{/*path}', { decode: decodeURIComponent })
-  const orgMatchResult = orgMatch(finalUrl)
-  if (orgMatchResult) {
-    finalUrl = finalUrl.replace((orgMatchResult.params as any).slug, '[slug]')
-  }
-
-  const newOrgMatch = match('/new/:slug', { decode: decodeURIComponent })
-  const newOrgMatchResult = newOrgMatch(finalUrl)
-  if (newOrgMatchResult) {
-    finalUrl = finalUrl.replace((newOrgMatchResult.params as any).slug, '[slug]')
-  }
-
-  const projectMatch = match('/project/:ref{/*path}', { decode: decodeURIComponent })
-  const projectMatchResult = projectMatch(finalUrl)
-  if (projectMatchResult) {
-    finalUrl = finalUrl.replace((projectMatchResult.params as any).ref, '[ref]')
-  }
-
-  return finalUrl
-}
 
 // This export will instrument router navigations, and is only relevant if you enable tracing.
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart

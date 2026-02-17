@@ -215,8 +215,13 @@ Sentry.init({
     's.getModifierState is not a function',
     /^Uncaught NetworkError: Failed to execute 'importScripts' on 'WorkerGlobalScope'/,
 
-    // === Browser wallet extension errors (e.g., Gate.io wallet) ===
+    // === Browser extension errors ===
+    // Gate.io wallet
     'shouldSetTallyForCurrentProvider is not a function',
+    // SAP browser extensions (SAP GUI, SAP Companion)
+    'sap is not defined',
+    // Non-Error objects thrown as exceptions (e.g., Event objects)
+    '[object Event]',
 
     // === Third-party SDK errors ===
     // stripe-js: https://github.com/stripe/stripe-js/issues/26
